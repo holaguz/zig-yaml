@@ -16,7 +16,7 @@ const usage =
     \\
 ;
 
-var log_scopes: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(gpa);
+var log_scopes: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(gpa.allocator());
 
 pub fn log(
     comptime level: std.log.Level,
@@ -27,8 +27,8 @@ pub fn log(
     // Hide debug messages unless:
     // * logging enabled with `-Dlog`.
     // * the --debug-log arg for the scope has been provided
-    if (@enumToInt(level) > @enumToInt(std.log.level) or
-        @enumToInt(level) > @enumToInt(std.log.Level.info))
+    if (@intFromEnum(level) > @intFromEnum(std.log.level) or
+        @intFromEnum(level) > @intFromEnum(std.log.Level.info))
     {
         if (!build_options.enable_logging) return;
 

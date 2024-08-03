@@ -22,7 +22,7 @@ pub const YamlError = error{
 } || ParseError || std.fmt.ParseIntError;
 
 pub const List = []Value;
-pub const Map = std.StringHashMap(Value);
+pub const Map = std.StringArrayHashMap(Value);
 
 pub const Value = union(enum) {
     empty,
@@ -102,11 +102,7 @@ pub const Value = union(enum) {
                 if (len == 0) return;
 
                 var i: usize = 0;
-                var it = map.iterator();
-                while (it.next()) |entry| {
-                    const key = entry.key_ptr.*;
-                    const value = entry.value_ptr.*;
-
+                for (map.keys(), map.values()) |key, value| {
                     if (!args.should_inline_first_key or i != 0) {
                         try writer.writeByteNTimes(' ', args.indentation);
                     }
@@ -154,7 +150,7 @@ pub const Value = union(enum) {
         } else if (node.cast(Node.Map)) |map| {
             // TODO use ContextAdapted HashMap and do not duplicate keys, intern
             // in a contiguous string buffer.
-            var out_map = std.StringHashMap(Value).init(arena);
+            var out_map = std.StringArrayHashMap(Value).init(arena);
             try out_map.ensureUnusedCapacity(math.cast(u32, map.values.items.len) orelse return error.Overflow);
 
             for (map.values.items) |entry| {
@@ -185,8 +181,7 @@ pub const Value = union(enum) {
             const raw = tree.getRaw(node.start, node.end);
 
             try_int: {
-                // TODO infer base for int
-                const int = std.fmt.parseInt(i64, raw, 10) catch break :try_int;
+                const int = std.fmt.parseInt(i64, raw, 0) catch break :try_int;
                 return Value{ .int = int };
             }
 
@@ -197,7 +192,7 @@ pub const Value = union(enum) {
 
             return Value{ .string = try arena.dupe(u8, value.string_value.items) };
         } else {
-            log.err("Unexpected node type: {}", .{node.tag});
+            log.debug("Unexpected node type: {}", .{node.tag});
             return error.UnexpectedNodeType;
         }
     }
@@ -270,7 +265,7 @@ pub const Value = union(enum) {
                         if (try encode(arena, elem)) |value| {
                             list.appendAssumeCapacity(value);
                         } else {
-                            log.err("Could not encode value in a list: {any}", .{elem});
+                            log.debug("Could not encode value in a list: {any}", .{elem});
                             return error.CannotEncodeValue;
                         }
                     }
@@ -401,8 +396,10 @@ pub const Yaml = struct {
             inline for (union_info.fields) |field| {
                 if (self.parseValue(field.type, value)) |u_value| {
                     return @unionInit(T, field.name, u_value);
-                } else |err| {
-                    if (@as(@TypeOf(err) || error{TypeMismatch}, err) != error.TypeMismatch) return err;
+                } else |err| switch (err) {
+                    error.TypeMismatch => {},
+                    error.StructFieldMissing => {},
+                    else => return err,
                 }
             }
         } else return error.UntaggedUnion;
@@ -432,7 +429,7 @@ pub const Yaml = struct {
             }
 
             const unwrapped = value orelse {
-                log.err("missing struct field: {s}: {s}", .{ field.name, @typeName(field.type) });
+                log.debug("missing struct field: {s}: {s}", .{ field.name, @typeName(field.type) });
                 return error.StructFieldMissing;
             };
             @field(parsed, field.name) = try self.parseValue(field.type, unwrapped);
@@ -491,7 +488,7 @@ pub fn stringify(allocator: Allocator, input: anytype, writer: anytype) !void {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var maybe_value = try Value.encode(arena.allocator(), input);
+    const maybe_value = try Value.encode(arena.allocator(), input);
 
     if (maybe_value) |value| {
         // TODO should we output as an explicit doc?

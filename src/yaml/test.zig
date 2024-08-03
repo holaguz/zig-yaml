@@ -76,6 +76,25 @@ test "list of mixed sign integer" {
     try testing.expectEqualSlices(i8, &[_]i8{ 0, -1, 2 }, &arr);
 }
 
+test "several integer bases" {
+    const source =
+        \\- 10
+        \\- -10
+        \\- 0x10
+        \\- -0X10
+        \\- 0o10
+        \\- -0O10
+    ;
+
+    var yaml = try Yaml.load(testing.allocator, source);
+    defer yaml.deinit();
+
+    try testing.expectEqual(yaml.docs.items.len, 1);
+
+    const arr = try yaml.parse([6]i8);
+    try testing.expectEqualSlices(i8, &[_]i8{ 10, -10, 16, -16, 8, -8 }, &arr);
+}
+
 test "simple map untyped" {
     const source =
         \\a: 0
@@ -200,6 +219,54 @@ test "typed nested structs" {
     });
     try testing.expectEqualStrings("hello there", simple.a.b);
     try testing.expectEqualStrings("wait, what?", simple.a.c);
+}
+
+test "typed union with nested struct" {
+    const source =
+        \\a:
+        \\  b: hello there
+    ;
+
+    var yaml = try Yaml.load(testing.allocator, source);
+    defer yaml.deinit();
+
+    const simple = try yaml.parse(union(enum) {
+        tag_a: struct {
+            a: struct {
+                b: []const u8,
+            },
+        },
+        tag_c: struct {
+            c: struct {
+                d: []const u8,
+            },
+        },
+    });
+    try testing.expectEqualStrings("hello there", simple.tag_a.a.b);
+}
+
+test "typed union with nested struct 2" {
+    const source =
+        \\c:
+        \\  d: hello there
+    ;
+
+    var yaml = try Yaml.load(testing.allocator, source);
+    defer yaml.deinit();
+
+    const simple = try yaml.parse(union(enum) {
+        tag_a: struct {
+            a: struct {
+                b: []const u8,
+            },
+        },
+        tag_c: struct {
+            c: struct {
+                d: []const u8,
+            },
+        },
+    });
+    try testing.expectEqualStrings("hello there", simple.tag_c.c.d);
 }
 
 test "single quoted string" {
